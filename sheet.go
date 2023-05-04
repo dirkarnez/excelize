@@ -650,46 +650,60 @@ func (f *File) deleteSheetFromContentTypes(target string) error {
 // target worksheet index. Note that currently doesn't support duplicate
 // workbooks that contain tables, charts or pictures. For Example:
 //
-//	// Sheet1 already exists...
-//	index, err := f.NewSheet("Sheet2")
-//	if err != nil {
-//	    fmt.Println(err)
-//	    return
-//	}
-//	err := f.CopySheet(1, index)
+//    // Sheet1 already exists...
+//    index := f.NewSheet("Sheet2")
+//    err := f.CopySheet(1, index)
+//    return err
+//
 func (f *File) CopySheet(from, to int) error {
 	if from < 0 || to < 0 || from == to || f.GetSheetName(from) == "" || f.GetSheetName(to) == "" {
 		return ErrSheetIdx
 	}
-	return f.copySheet(from, to)
+	return f.copySheet(f, from, to)
 }
 
-// copySheet provides a function to duplicate a worksheet by gave source and
-// target worksheet name.
-func (f *File) copySheet(from, to int) error {
-	fromSheet := f.GetSheetName(from)
-	sheet, err := f.workSheetReader(fromSheet)
+// CopySheetFrom provides a function to copy a worksheet from the given source
+// file and sheet to the target worksheet index. Note that currently this method
+// doesn't support copying workbooks that contain tables, charts, or pictures.
+//
+//    source := excelize.OpenFile("sample.xlsx")
+//    target := excelize.NewFile()
+//    index := target.NewSheet("Sheet2")
+//    err := target.CopySheetFrom(source, 1, index)
+//    return err
+func (f *File) CopySheetFrom(s *File, from, to int) error {
+	if from < 0 || to < 0 || from == to || s.GetSheetName(from) == "" || f.GetSheetName(to) == "" {
+		return ErrSheetIdx
+	}
+	return f.copySheet(s, from, to)
+}
+
+// copysheet provides a function to copy a worksheet from the given source file
+// and sheet and clones the content from this sheet to the given target sheet.
+func (f *File) copySheet(s *File, from, to int) error {
+	fromSheet := s.GetSheetName(from)
+	sheet, err := s.workSheetReader(fromSheet)
 	if err != nil {
 		return err
 	}
 	worksheet := deepcopy.Copy(sheet).(*xlsxWorksheet)
 	toSheetID := strconv.Itoa(f.getSheetID(f.GetSheetName(to)))
-	sheetXMLPath := "xl/worksheets/sheet" + toSheetID + ".xml"
+	path := "xl/worksheets/sheet" + toSheetID + ".xml"
 	if len(worksheet.SheetViews.SheetView) > 0 {
 		worksheet.SheetViews.SheetView[0].TabSelected = false
 	}
 	worksheet.Drawing = nil
 	worksheet.TableParts = nil
 	worksheet.PageSetUp = nil
-	f.Sheet.Store(sheetXMLPath, worksheet)
+	f.Sheet.Store(path, worksheet)
 	toRels := "xl/worksheets/_rels/sheet" + toSheetID + ".xml.rels"
-	fromRels := "xl/worksheets/_rels/sheet" + strconv.Itoa(f.getSheetID(fromSheet)) + ".xml.rels"
-	if rels, ok := f.Pkg.Load(fromRels); ok && rels != nil {
+	fromRels := "xl/worksheets/_rels/sheet" + strconv.Itoa(s.getSheetID(fromSheet)) + ".xml.rels"
+	if rels, ok := s.Pkg.Load(fromRels); ok && rels != nil {
 		f.Pkg.Store(toRels, rels.([]byte))
 	}
-	fromSheetXMLPath, _ := f.getSheetXMLPath(fromSheet)
-	fromSheetAttr := f.xmlAttr[fromSheetXMLPath]
-	f.xmlAttr[sheetXMLPath] = fromSheetAttr
+	fromSheetXMLPath, _ := s.getSheetXMLPath(fromSheet)
+	fromSheetAttr := s.xmlAttr[fromSheetXMLPath]
+	f.xmlAttr[path] = fromSheetAttr
 	return err
 }
 
